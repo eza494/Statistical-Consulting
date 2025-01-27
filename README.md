@@ -1,24 +1,24 @@
-Statistical Consulting Report and Analysis
+# Statistical Consulting Report and Analysis
 
 This repository contains the files and code related to the analysis of preterm rabbit lung aeration experiments, which explore the effects of various ventilation settings on airway resistance during lung aeration. The goal of the project was to identify optimal ventilatory strategies that reduce airway resistance and minimize time to effective respiration.
 
-Project Overview
+## Project Overview
 
-Background
+### Background
 
 Preterm infants often face challenges in transitioning from liquid-filled lungs to effective gas exchange after birth due to underdeveloped respiratory systems. This study modeled this scenario using preterm rabbits as a proxy to investigate how ventilator settings influence lung aeration and airway resistance.
 
-Objective
+### Objective
 
 Determine which combinations of ventilatory settings minimize airway resistance.
 
-Repository Contents
+### Repository Contents
 
 Statistical_Consulting_Report.pdf: Final report detailing methodology, results, and conclusions.
 
 Client_Analysis_Complete.Rmd: R Markdown file containing code and statistical analyses performed in the study.
 
-Outputs
+### Outputs
 
 The analysis results include:
 
@@ -42,7 +42,7 @@ Data Collection: High-frequency X-ray imaging during the first two minutes of ve
 
 Ventilator Settings: Various combinations of seven parameters, including tidal volume, respiratory rate, PEEP (positive end-expiratory pressure), and surfactant presence.
 
-Statistical Analysis
+### Statistical Analysis
 
 K-means Clustering:
 
@@ -50,7 +50,7 @@ Grouped data into clusters based on time to minimal resistance and airway resist
 
 Identified critical settings leading to optimal outcomes.
 
-Bagging (Bootstrap Aggregating):
+Bagging (Bootstrap Aggregatiion):
 
 Enhanced model reliability and identified key predictors, such as respiratory rate and tidal volume.
 
@@ -62,7 +62,7 @@ Addressed data correlation and ensured robust inference.
 
 Usage
 
-Requirements
+### Requirements
 
 The analysis requires R and the following R packages:
 
@@ -74,7 +74,7 @@ nlme
 
 caret
 
-Running the Analysis
+### Running the Analysis
 
 Clone this repository.
 
@@ -84,7 +84,7 @@ Install the required packages.
 
 Knit the R Markdown file to generate a reproducible report.
 
-Key Findings
+## Key Findings
 
 Optimal Settings: A tidal volume of 10 mL/kg and respiratory rates of 24-30 bpm significantly reduced airway resistance and time to minimal resistance.
 
@@ -92,7 +92,7 @@ Robustness of Results: Both machine learning and statistical modeling approaches
 
 Practical Implications: The identified settings provide guidance for neonatal ventilator configurations to support preterm infants.
 
-Limitations
+### Limitations
 
 Small sample size and unbalanced dataset.
 
@@ -100,7 +100,7 @@ Limited focus on the initial phase of lung aeration.
 
 Lack of long-term health outcome measurements for subjects.
 
-Contributions
+## Contributions
 
 Authors: Levi Duijst & Alexandros Ioannou
 
