@@ -1,0 +1,427 @@
+---
+title: "Client analysis"
+author: "Levi Duijst & Alexandros Ioannou"
+date: "2023-10-29"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+In the following Rmd file, we analyse the data set provided, trying to determine which combination of ventilator settings best help reduce airway resistance in lung aeration. The document is broken down into three main parts. 
+ 1) Preprocessing
+ 2) Data Exploration 
+ 3) Statistical Modelling
+ 
+In the preprocessing section, we look at the data at a very basic level trying to determine what we need, essentially data cleaning. In the data exploration, we look at specific aspects of our data to see whether there are any interesting trends or patterns that we would need to take into account later on to solve the problem. Finally in Statistical Modelling, we solve the problem, by applying a mixture of different models, a Linear Mixed Model, and a combination of K-means clustering and Bagging. 
+ 
+ 
+# Preprocessing 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Packages that were used 
+```{r}
+library(readxl)
+library(ggplot2)
+library(corrplot)
+library(factoextra)
+library(randomForest, quietly = T)
+library(nlme)
+```
+
+
+First step is to load in the data. Set the working directory to your own path.
+```{r}
+Resistance_outcome <- read_excel("Resistance outcome.xlsx")
+All_factors <- read_excel("Overview included rabbit pups.xlsx")
+```
+
+Looking at the datasets. Changing the order of the All_factor dataset to make it equal to the Resistance_outcome dataset.
+```{r}
+All_factors = All_factors[order(All_factors$`Sheet nr`),]
+All_factors$`Sheet nr`== Resistance_outcome$Rabbit
+```
+
+Looking at the variables and which type they are in the two dataset.
+```{r}
+str(Resistance_outcome)
+str(All_factors)
+```
+Changing certain columns from numerical to factor. 
+```{r}
+col_names = c(3,4,5,7:14)
+All_factors[,col_names] = lapply(All_factors[,col_names] , factor)
+str(All_factors)
+```
+
+Here we combine both datasets into a dataset.
+```{r}
+Total = cbind(All_factors,Resistance_outcome)
+Total = Total[,-15]
+Total
+```
+
+Summary table of all variables. No strange observations are observed. 
+```{r}
+summary(Total)
+```
+
+# Data Exploration 
+
+Plotting the experiment in seconds to see for any strange deviation from the dataset. One value is lower than the others, 53 seconds. But after looking at the table, the time to minimal resistance is at 11 seconds, so there is not reason to remove this data point.
+```{r}
+plot(Total$`Data seconds`, ylab = "Seconds", main="Experiment in seconds")
+```
+
+Plotting the distribution of the levels for each variable
+```{r}
+columns = c(5:14)
+for(i in (columns)){
+  plot(Total[,i], main=colnames(Total)[i], ylab= "Frequency", xlab=colnames(Total)[i])
+}
+
+```
+
+Some of the variables have unbalanced data: GA, Target Vt/kg, PIP at the start, Rate, expiratory resistance, and surfactant present.
+
+Now we have a look for some combinations of how the variables are mixed in pairs in the dataset.
+```{r}
+ggplot(data = Total) +
+  geom_bar(aes(x = PEEP, fill = Rate))
+
+
+ggplot(data = Total) +
+  geom_bar(aes(x = PEEP, fill = `PIP at start`))
+
+ggplot(data = Total) +
+  geom_bar(aes(x = PEEP, fill = `Expiratory resistance`))
+
+ggplot(data = Total) +
+  geom_bar(aes(x = PEEP, fill = `Ti/Te`))
+
+ggplot(data = Total) +
+  geom_bar(aes(x = `PIP at start`, fill = `Ti/Te`))
+
+ggplot(data = Total) +
+  geom_bar(aes(x = PEEP, fill = `PIP at start`))
+ggplot(data = Total) +
+  geom_bar(aes(x = Rate, fill = `Ti/Te`))
+```
+
+We can observe that certain combinations are more prominent and present in the dataset while some do not even exist. This is a very unbalanced dataset because the experiments themselves are performed separately from each other.
+
+We can also quantify the correlation between the variables. First, a new temporary dataset is created. Then the factor levels are transformed into numerical values; e.g. 1, 2, 3 etc. Then the correlation between the variables can be correlated and plotted.
+ 
+```{r}
+new_df = Total
+new_df$Rate = as.numeric(Total$Rate)
+new_df$`Target Vt/kg` = as.numeric(Total$`Target Vt/kg`)
+new_df$`Ti/Te` = as.numeric(Total$`Ti/Te`)
+new_df$PEEP = as.numeric(Total$PEEP)
+new_df$`PIP at start` = as.numeric(Total$`PIP at start`)
+new_df$`Surfactant present` = as.numeric(Total$`Surfactant present`)
+new_df$`Expiratory resistance` = as.numeric(Total$`Expiratory resistance`)
+
+corr <- round(cor(new_df[c(8:14)]), 1)
+corr
+corrplot(corr, method = "number", type="lower",col = col<- colorRampPalette(c("red", "purple", "blue"))(20))
+```
+
+It can be observed that Rate and Ti/Te are negatively correlated (When a higher level of Rate is picked then a lower level of Ti/Te is picked as a result). This means that both variables explain the same information; one of the two is enough for any model. Other variables that are quite highly correlated are PIP with Rate (negative) and Ti/Te (positive).
+
+Plotting the outcome variables together and separating them to try to find some patterns.
+
+```{r}
+plot(Total$`Time minimal resistance`,Total$`Minimal resistance`, xlab = "Time to minimal resistance", ylab= "Minimal resistance", main = "Plot of Outcome Variables against each other")
+plot(Total$`Time minimal resistance`,ylab= "Time to Minimal resistance")
+plot(Total$`Minimal resistance`,ylab= "Minimal resistance")
+
+```
+
+The scatter plot of both outcome variables does show some clustering of the data points.
+
+Here below we plot the two outcome variables again and we color the dots based on the variable to try to find any patterns based on a first expression.
+```{r}
+ggplot(data = Total) +
+  geom_point(aes(x = `Time minimal resistance`,y =`Minimal resistance`))
+
+ggplot(data = Total) +
+  geom_point(aes(x = `Time minimal resistance`,y =`Minimal resistance`,  color = Group))
+
+ggplot(data = Total) +
+  geom_point(aes(x = `Time minimal resistance`,y =`Minimal resistance`,  color = PEEP))
+
+ggplot(data = Total) +
+  geom_point(aes(x = `Time minimal resistance`,y =`Minimal resistance`,  color = GA))
+
+ggplot(data = Total) +
+  geom_point(aes(x = `Time minimal resistance`,y =`Minimal resistance`,  color = `Target Vt/kg`))
+
+ggplot(data = Total) +
+  geom_point(aes(x = `Time minimal resistance`,y =`Minimal resistance`,  color = `PIP at start`))
+
+ggplot(data = Total) +
+  geom_point(aes(x = `Time minimal resistance`,y =`Minimal resistance`,  color = Rate))
+
+ggplot(data = Total) +
+  geom_point(aes(x = `Time minimal resistance`,y =`Minimal resistance`,  color = `Expiratory resistance`))
+
+ggplot(data = Total) +
+  geom_point(aes(x = `Time minimal resistance`,y =`Minimal resistance`,  color = `Surfactant present`))
+
+ggplot(data = Total) +
+  geom_point(aes(x = `Time minimal resistance`,y =`Minimal resistance`,  color = `Ti/Te`))
+```
+
+It looks like there are three clusters in these scatterplots. For this study, the bottom middle cluster is the one of interest, because there is both minimal resistance and time to minimal resistance, want the main focus is for the study. Target and Rate have some levels/colors that are only present in the middle bottom cluster. Other variables show no clear patterns or colors that are only present in the cluster of interest.
+
+# Statistical modelling
+Here below we perform the statistical analysis for both K-means clustering with bagging and the Linear Mixed Model (LMM).
+
+## K-means
+Because K-means is a random process, the seed has to be defined to obtain the same results over time. One important aspect with K-means clustering is that we scale the two outcome variables because the distance in the x-axis can have a different scale than in the y-axis.
+```{r}
+bdiag.2vars <- Total[,c("Time minimal resistance", "Minimal resistance")]
+
+bi = scale(bdiag.2vars)
+```
+
+Now we have to define how many clusters we need because with K-means clustering we have to predefine the amount of clusters we think we have. We do this with the silhouette and the Total Within sum of Squares
+```{r}
+fviz_nbclust(bi, kmeans, method = "silhouette")
+fviz_nbclust(bi, kmeans, method = "wss")
+```
+
+The silhouette plot gives us 3 clusters. From the Within Sum of Squares, we can see the “elbow” around 3. So both plots suggest using 3 clusters as optimal.
+
+Here we model with 3 clusters.
+```{r}
+set.seed(1234)
+km <- kmeans(bi, centers = 3, iter.max = 25, nstart = 25)
+```
+
+And here we plot the results.
+```{r}
+fviz_cluster(km, data = bdiag.2vars, label=NA)+theme_bw()
+```
+The plot indicates which observations belong to which cluster. Our interest is the red cluster.
+
+A summary of the K-mean model. 
+```{r}
+km
+```
+
+We can see from the Within cluster sum of squares by cluster that we have 88.2%. This implies that our current cluster choices explain 88.2% of the data. This is quite a high score and we can be confident in continuing our analysis using 3 clusters.
+
+Here we add the cluster value to the observations. Below we have a look at which experiment groups are in which cluster. As you can see, some kittens from the same experiment are in multiple clusters.
+
+```{r}
+Total$cluster = km$cluster
+table(Total[Total$cluster==1,]$Group)
+table(Total[Total$cluster==2,]$Group)
+table(Total[Total$cluster==3,]$Group)
+```
+
+Creating new datasets for each cluster with only the explanatory variables.
+```{r}
+Cluster1 = Total[Total$cluster==1,][,c(8:14)]
+Cluster2 = Total[Total$cluster==2,][,c(8:14)]
+Cluster3 = Total[Total$cluster==3,][,c(8:14)]
+```
+
+
+Comparison of cluster 1 against cluster 2
+```{r}
+setdiff(Cluster1$`Target Vt/kg` , Cluster2$`Target Vt/kg`)
+setdiff(Cluster1$PEEP , Cluster2$PEEP)
+setdiff(Cluster1$`PIP at start` , Cluster2$`PIP at start`)
+setdiff(Cluster1$Rate , Cluster2$Rate)
+setdiff(Cluster1$`Expiratory resistance` , Cluster2$`Expiratory resistance`)
+setdiff(Cluster1$`Ti/Te` , Cluster2$`Ti/Te`)
+setdiff(Cluster1$`Surfactant present` , Cluster2$`Surfactant present`)
+```
+The outcome shows which variable levels are only present in cluster 1 and not in cluster 2.
+
+Comparison of cluster 1 against cluster 3
+```{r}
+setdiff(Cluster1$`Target Vt/kg` , Cluster3$`Target Vt/kg`)
+setdiff(Cluster1$PEEP , Cluster3$PEEP)
+setdiff(Cluster1$`PIP at start` , Cluster3$`PIP at start`)
+setdiff(Cluster1$Rate , Cluster3$Rate)
+setdiff(Cluster1$`Expiratory resistance` , Cluster3$`Expiratory resistance`)
+setdiff(Cluster1$`Ti/Te` , Cluster3$`Ti/Te`)
+setdiff(Cluster1$`Surfactant present` , Cluster3$`Surfactant present`)
+```
+The same but now for variable levels that are only present in cluster 1 and not cluster 3.
+
+
+## Bagging
+Now we perform the bagging method. We use bagging instead of randomforest because bagging includes all parameters in the model instead of randomforest which uses a subset. In our case, it is important to take all parameters into account for the model. First, we need to change the names of certain columns by creating new columns for these variables.
+```{r}
+#Creating the random forest model
+Total$Target = Total$`Target Vt/kg`
+Total$PIP = Total$`PIP at start`
+Total$TiTe = Total$`Ti/Te`
+Total$Surfactant = Total$`Surfactant present`
+Total$resistance =  Total$`Expiratory resistance`
+Total$cluster = as.factor(Total$cluster)
+Total$Time_minimal_resistance = Total$`Time minimal resistance`
+Total$Kitten_nr = Total$`Kitten nr`
+```
+
+
+Again, bagging also works with random processes so that is why we set a seed again to get the same answers every time when we run this code. 
+```{r}
+set.seed(12345)
+rf <- randomForest(cluster ~  PEEP +Rate+Target + PIP+ TiTe + Surfactant + resistance +GA , data = Total,
+                   importance = TRUE, replace = TRUE, mtry =  (ncol(Total[,7:14])) , ntree = 500)
+
+```
+
+
+Next we can have a look at the importance of the variables. Our main focus in the Mean Decrease Accuracy and we ignore the other columns. 
+```{r}
+#Checking the importance level for the 6 variables with the highest % increase MSE when removed from the dataset. 
+import = importance(rf)
+head(import[order(import[ , "1"], decreasing = TRUE),],n = 8)[,4]
+```
+The importance of the variables can also be plotted. Our focus is on the left plot (the MinDecreaseGini can be ignored).
+```{r, echo=F}
+#Plotting the variance importance of all the variables of the random forest model
+varImpPlot(rf, cex = .8, main = "Variable importances for the bagging method")
+```
+
+The importance of each variable can be read from the left plot. How high the MeanDreaseAccuracy is implies how important the variable is in the model. For example, when Target is removed from the model, the accuracy of putting the right kitten in the correct cluster decreases by 80%.
+
+The partial dependence plot for all variables can be plotted too to have a more in-depth look at how the different levels are related to cluster 1 i.e. cluster of interest.
+
+```{r}
+par(mfrow = c(2, 2))
+partialPlot(rf, x.var = "Rate", pred.data = Total,which.class="1", cex.main = .7)
+partialPlot(rf, x.var = "Target", pred.data = Total,which.class="1", cex.main = .7)
+partialPlot(rf, x.var = "PEEP", pred.data = Total,which.class="1", cex.main = .7)
+partialPlot(rf, x.var = "TiTe", pred.data = Total,which.class="1", cex.main = .7)
+partialPlot(rf, x.var = "Surfactant", pred.data = Total,which.class="1", cex.main = .7)
+partialPlot(rf, x.var = "resistance", pred.data = Total,which.class="1", cex.main = .7)
+partialPlot(rf, x.var = "GA", pred.data = Total,which.class="1", cex.main = .7)
+partialPlot(rf, x.var = "PIP", pred.data = Total,which.class="1", cex.main = .7)
+```
+
+For example, a rate of 24 has high log odds when having this variable as the setting for the kitten. This means it is more likely to be placed in cluster 1 (minimal resistance and time to minimal resistance) than the other 2 clusters. A negative log odds means the probability of being in cluster 1 is very small, and rare.
+
+## LMM 
+For the linear mixed model, we first have to filter the data. We only use the data points that have values below 600 minimal resistance, because having a low resistance in the lung is the important part of lung aeration. 
+
+```{r}
+#Bounding the resistance`
+FilteredTotal = subset(Total,`Minimal resistance`<600)
+plot(y = FilteredTotal$`Minimal resistance`, x = FilteredTotal$`Time minimal resistance`,
+     ylab = "Minimal Resistance", xlab = "Time to Minimal Resistance")
+```
+
+This is how the data looks like in a scatterplot.
+
+Next, we fit the LMM using Time for Minimal Resistance as an output. Due to the collinearity between the Rate and Target, we had to remove those two variables from the model, otherwise, the model could not run. For the random effect, the kitten number will be used.
+
+```{r}
+model <- lme(data = FilteredTotal,
+               fixed =  Time_minimal_resistance ~  PEEP + PIP + Target+
+                 resistance+Surfactant, 
+               random = list(Kitten_nr = pdDiag(form = ~1)), 
+               method = "REML")
+
+summary(model)
+
+```
+
+The summary output gives the random effects and fixed effects correlation matrix in the first part. In the second part, it shows the model criteria values. In the third part, the coefficients of the model are shown with standard errors and p-values. We can see in the third part that the Intercept, PEEP5, PIP35, and Target10 are significant with p-values less than 0.05
+
+We look at the random effect, in particular, our coefficients for each sibling group.
+
+```{r}
+model$coefficients$random
+```
+
+We can see that for all sibling groups, these are extremely small. Including these 
+to our intercept for each different case would not result in any change as a result.
+
+
+
+Below we run some diagnostic plots to see if fitted model is done correctly by looking at QQplots, variogram and the residuals.   
+```{r, warning=FALSE}
+qqnorm(residuals(model))
+qqline(residuals(model))
+plot(Vg2 <- Variogram(model, form = ~ 1|Kitten_nr , robust = TRUE, resType = "normalized"))
+
+plot(model, resid(., type = "n") ~ fitted(.)|Kitten_nr, type = c("p", "smooth"), col = "red")
+plot(model, resid(., type = "n") ~ fitted(.)|Kitten_nr, type = c("p"), col = "red")
+
+plot(model, resid(., type = "n") ~ fitted(.), type = c("p", "smooth"), lwd = 3)
+```
+
+To test if the random effect is truly necessary for the model, we will now fit a normal linear model with all variables just as before with the LMM. 
+
+```{r}
+lastMod = lm(data = FilteredTotal,formula = Time_minimal_resistance~  PEEP+PIP+Target+
+                 resistance+Surfactant)
+summary(lastMod)
+```
+The summary output gives similar results as the LMM with the same variables being 
+significant and their coefficients having very close values.
+
+Also plotting a QQplot of the linear model.
+```{r}
+qqnorm(residuals(lastMod))
+qqline(residuals(lastMod))
+```
+
+This is almost identical to our LMMs QQplot. 
+
+Finally, we test which of the two models fits the data the best: the LMM or linear model.
+We test for the difference with a Likelihood ratio test.
+
+```{r}
+
+#Null Hypothesis: the random effect of mixed model is not significant
+#In otherwords Linear Model adequately replicates linear mixed model
+
+# Calculate log-likelihood for each model
+logLik_lastMod <- logLik(lastMod)
+logLik_model.7 <- logLik(model)
+
+# Calculate likelihood ratio test statistic
+LR_test_stat <- -2 * (logLik_lastMod - logLik_model.7)
+
+# Degrees of freedom difference between models (number of additional parameters)
+df_diff <- attr(logLik_model.7, "df") - attr(logLik_lastMod, "df")
+
+# Calculate p-value using chi-square distribution
+p_value <- pchisq(LR_test_stat, df = df_diff, lower.tail = FALSE)
+
+# Output likelihood ratio test statistic and p-value
+cat("Likelihood Ratio Test Statistic:", LR_test_stat, "\n")
+cat("Degrees of Freedom Difference:", df_diff, "\n")
+cat("P-value:", p_value, "\n")
+
+#We see from the result of the p-value, as it is smaller than alpha level
+#0.05 we can conclude that Linear Mixed model is a significantly better fit
+```
+
+The p-value of the likelihood ratio test is lower than 0.05, so we reject the null hypothesis that the random effect is not significant (the linear model fits the data as well as LMM) and accept the alternative hypothesis which states that the random effect should be included in the model. The LMM fits the data better than the LM.
+
+
+# Conclusion:
+
+Summarizing we have now looked at in detail which ventilator settings were most important. From Bagging we saw Rate and Target were very important for our cluster of interest. Partially this result is verified from the Linear Mixed Model where Target is also very important for helping reduce the resistance the most.
+
+
+
+
+
+
+
+
+
+
+
